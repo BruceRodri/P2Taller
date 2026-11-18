@@ -12,7 +12,7 @@ notepad .env
 docker compose up --build -d
 ```
 
-Espere a que la base este lista y abra http://localhost:8501. Para detener: `docker compose down`. El volumen de PostgreSQL conserva los datos. Las variables son `POSTGRES_PASSWORD` en `.env`, y `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` y `EXTERNAL_URL` para la aplicacion (Compose las configura). No hay autenticacion real; el nombre solicitado por el Proxy es demostrativo.
+Espere a que la base este lista y abra http://localhost:8501. Para detener: `docker compose down`. El volumen de PostgreSQL conserva los datos. Las variables son `POSTGRES_PASSWORD` en `.env`, y `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` y `EXTERNAL_URL` para la aplicacion (Compose las configura). La variable opcional `APP_DB_NAME` permite elegir la base a la que se conecta la aplicacion; si se omite, se usa `sample_store`. No hay autenticacion real; el nombre solicitado por el Proxy es demostrativo.
 
 ## Base de datos
 
@@ -48,6 +48,18 @@ docker compose exec -T db createdb -U sample_user prueba_restauracion
 docker compose exec -T db pg_restore -U sample_user -d prueba_restauracion /tmp/restaurar.backup
 docker compose exec -T db psql -U sample_user -d prueba_restauracion -c "SELECT count(*) FROM orders;"
 ```
+
+La base restaurada es independiente: el procedimiento anterior no modifica los datos que ya existen en `sample_store`. Para ver el respaldo restaurado desde la aplicación, agregue la siguiente línea al archivo local `.env` (sin borrar `POSTGRES_PASSWORD`) y recree solo la aplicación:
+
+```text
+APP_DB_NAME=prueba_restauracion
+```
+
+```powershell
+docker compose up -d app
+```
+
+Abra http://localhost:8501 y consulte los pedidos. Para volver a la base inicial, quite `APP_DB_NAME` del `.env` y ejecute nuevamente `docker compose up -d app`. Si `prueba_restauracion` ya existe, use otro nombre nuevo en los comandos `createdb`, `pg_restore`, `psql` y `APP_DB_NAME`; no ejecute `pg_restore` sobre una base con datos que desee conservar.
 
 No publique `.env`, dependencias descargadas, cache ni datos sensibles. Incluya el backup requerido en el ZIP de entrega, sin incluirlo en Git si contiene datos privados.
 
