@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: sample_store
+      POSTGRES_USER: sample_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Cree el archivo .env como explica README}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sample_user -d sample_store"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      DB_HOST: db
+      DB_NAME: sample_store
+      DB_USER: sample_user
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      EXTERNAL_URL: http://external:8080
+    depends_on:
+      db:
+        condition: service_healthy
+      external:
+        condition: service_started
+  external:
+    build: .
+    command: ["python", "external_service.py"]
+volumes:
+  postgres_data:

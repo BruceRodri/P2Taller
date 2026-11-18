@@ -1,0 +1,10 @@
+.env
+.git
+__pycache__
+*.pyc
+*.backup
+.venv
+
+evidencias/
+output/
+tmp/
