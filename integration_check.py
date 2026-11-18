@@ -10,10 +10,12 @@ with connect() as db:
     pid=db.execute("INSERT INTO products(name,price,stock_qty) VALUES ('Integracion',3,3) RETURNING product_id").fetchone()['product_id']
     cid=db.execute('SELECT customer_id FROM customers ORDER BY customer_id LIMIT 1').fetchone()['customer_id']
 before=scalar('SELECT count(*) FROM orders')
+before_items=scalar('SELECT count(*) FROM order_items')
 try: make_order_service().place('Prueba',cid,pid,1,True)
 except SimulatedError: pass
 else: raise AssertionError('No se provoco el fallo')
 assert scalar('SELECT count(*) FROM orders') == before
+assert scalar('SELECT count(*) FROM order_items') == before_items
 assert scalar('SELECT stock_qty FROM products WHERE product_id=%s',(pid,)) == 3
 print('OK: ROLLBACK sin pedido parcial ni descuento')
 (result, events), audit = make_order_service().place('Prueba',cid,pid,1)
@@ -44,6 +46,12 @@ assert b.state=='OPEN'
 try: b.call('10','demo')
 except CircuitOpen: pass
 else: raise AssertionError('La llamada no fue bloqueada')
+time.sleep(1.1)
+try: b.call('10','demo')
+except BusinessError: pass
+else: raise AssertionError('La prueba HALF-OPEN debio fallar')
+assert b.state=='OPEN'
+print('OK: HALF-OPEN -> OPEN cuando el proveedor sigue fallando')
 requests.post(url+'/control',json={'failing':False},timeout=3).raise_for_status()
 time.sleep(1.1)
 assert b.call('10','demo')['value']=='10' and b.state=='CLOSED'

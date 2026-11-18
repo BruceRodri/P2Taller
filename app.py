@@ -56,7 +56,7 @@ div[data-testid="stForm"] {border: 1px solid #e8ebf3; border-radius: 16px; backg
 with st.sidebar:
     st.markdown('<div class="brand"><span class="brand-icon">S</span>sample store</div><div class="brand-subtitle">PANEL DE GESTIÓN</div>', unsafe_allow_html=True)
     st.markdown('<div class="sidebar-label">ESPACIO DE TRABAJO</div>', unsafe_allow_html=True)
-    page = st.radio('Navegación', ['Productos', 'Pedidos', 'Pruebas ACID', 'Servicio externo', 'Código del proyecto'], label_visibility='collapsed')
+    page = st.radio('Navegación', ['Productos', 'Pedidos', 'Pruebas ACID', 'Dos clientes', 'Servicio externo', 'Código del proyecto'], label_visibility='collapsed')
     st.markdown('<div class="sidebar-footer">APLICACIONES DISTRIBUIDAS<br><strong>Taller de consistencia</strong><br>Python · PostgreSQL</div>', unsafe_allow_html=True)
 
 url = os.getenv('EXTERNAL_URL', 'http://localhost:8080')
@@ -232,6 +232,44 @@ try:
         st.info('PostgreSQL bloquea la fila del producto durante la transacción para mantener el inventario consistente.')
         st.caption('Para demostrar atomicidad, activa el error simulado en Pedidos. Para durabilidad, confirma un pedido, reinicia los contenedores y vuelve a consultarlo.')
 
+    elif page == 'Dos clientes':
+        heading('Laboratorio / Dos clientes', 'Dos clientes, una unidad',
+                'Abre esta pantalla en dos pestañas y comprueba cómo compiten por el mismo producto.')
+        st.markdown('**1.** En una pestaña crea un producto de prueba. **2.** En ambas, selecciona el mismo número y clientes distintos. **3.** Pulsa Comprar en ambas pestañas con la menor separación posible.')
+        if st.button('Crear producto con 1 unidad', type='primary'):
+            with connect() as db:
+                new_id = db.execute(
+                    "INSERT INTO products(name,description,price,stock_qty) "
+                    "VALUES ('Última unidad', 'Demostración dos clientes', 12.00, 1) "
+                    "RETURNING product_id"
+                ).fetchone()['product_id']
+            st.success(f'Producto de prueba #{new_id} creado con 1 unidad. Selecciona este número en ambas pestañas.')
+        st.caption('En la segunda pestaña, actualiza la página para ver un producto recién creado.')
+        demos = query("SELECT product_id, stock_qty FROM products WHERE description=%s AND active ORDER BY product_id DESC", ('Demostración dos clientes',))
+        clients = query('SELECT customer_id, first_name, last_name FROM customers ORDER BY customer_id')
+        if demos and clients:
+            names = {d['product_id']: d for d in demos}
+            selected_demo = st.selectbox('Producto compartido', list(names),
+                format_func=lambda pid: f"Prueba #{pid}")
+            customer_map = {c['customer_id']: c for c in clients}
+            chosen = st.selectbox('Identifica a este cliente', list(customer_map),
+                format_func=lambda cid: f"Cliente #{cid} · {customer_map[cid]['first_name']} {customer_map[cid]['last_name']}")
+            if st.button('Comprar la última unidad', key='buy_demo', width='stretch'):
+                try:
+                    (order, _events), _proxy = make_order_service().place(
+                        f'Cliente {chosen}', chosen, selected_demo, 1)
+                    st.success(f"Cliente #{chosen}: COMPRA CONFIRMADA · pedido #{order['order_id']}")
+                except Exception as exc:
+                    st.warning(f'Cliente #{chosen}: COMPRA RECHAZADA · {exc}')
+                status = query('SELECT stock_qty FROM products WHERE product_id=%s', (selected_demo,))[0]
+                count = query('SELECT count(*) AS total FROM order_items WHERE product_id=%s', (selected_demo,))[0]
+                a, b = st.columns(2)
+                a.metric('Existencias finales', status['stock_qty'])
+                b.metric('Compras confirmadas', count['total'])
+            st.info('Cada pestaña usa su propia sesión y cada pedido abre una conexión PostgreSQL. El resultado no depende de que los clics sean perfectamente simultáneos: solo puede confirmarse una compra.')
+        else:
+            st.info('Crea un producto de prueba para comenzar.')
+
     elif page == 'Código del proyecto':
         heading('Proyecto / Código', 'Así está construido', 'Fragmentos reales del proyecto para estudiar la transacción y los patrones de diseño.')
         examples = {
@@ -276,14 +314,17 @@ try:
                 st.write('El Adapter transforma la solicitud al formato del proveedor externo.')
                 if st.button('Probar pago simulado', type='primary', width='stretch'):
                     before = breaker.state
+                    probe_due = (before == 'OPEN' and time.monotonic() - breaker.opened_at >= breaker.recovery_seconds)
                     try:
                         result = breaker.call('10.00', 'demo')
                         if before == 'OPEN':
                             st.info('OPEN → HALF-OPEN: se permitió una llamada de prueba.')
                         st.success(f"{before} → {breaker.state} · Referencia: {result['reference']}")
                     except Exception as exc:
-                        if before == 'OPEN' and breaker.state == 'OPEN' and time.monotonic() - breaker.opened_at < breaker.recovery_seconds:
-                            st.warning('Llamada bloqueada o prueba fallida; circuito OPEN.')
+                        if probe_due:
+                            st.warning('OPEN → HALF-OPEN → OPEN: la llamada de prueba falló y el circuito volvió a abrirse.')
+                        elif before == 'OPEN' and breaker.state == 'OPEN':
+                            st.warning('OPEN: solicitud bloqueada sin contactar al proveedor.')
                         show_error(exc)
                     state_metric.metric('Estado del circuito', breaker.state)
                     failure_metric.metric('Fallos consecutivos', breaker.failures)

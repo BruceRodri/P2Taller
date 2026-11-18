@@ -16,7 +16,7 @@ Espere a que la base este lista y abra http://localhost:8501. Para detener: `doc
 
 ## Base de datos
 
-Se adaptan las cuatro tablas del esquema [Sample Store](https://github.com/akramsaleh12/PostgreSQL-DB-Streamlit-App): customers, products, orders y order_items. `sql/01_schema.sql` contiene el esquema y datos iniciales. Agrega comprobaciones de cantidades, precios y stock, eliminacion logica y fecha del pedido. Docker ejecuta el script solo al crear un volumen vacio.
+Se adaptan las cuatro tablas del esquema [Sample Store](https://github.com/akramsaleh12/PostgreSQL-DB-Streamlit-App): customers, products, orders y order_items. `sql/00_esquema_original.sql` conserva el esquema original compartido; `sql/01_schema.sql` contiene la version adaptada y datos iniciales (cuatro clientes, ocho productos, dos pedidos y tres detalles). Agrega comprobaciones de cantidades, precios y stock, eliminacion logica y fecha del pedido. Docker ejecuta el script solo al crear un volumen vacio.
 
 ## Pruebas
 
@@ -24,9 +24,10 @@ Se adaptan las cuatro tablas del esquema [Sample Store](https://github.com/akram
 - Operacion normal: en Pedidos seleccione cliente, producto y cantidad; confirme y observe el pedido, stock, Proxy y los dos observadores.
 - Atomicidad: marque el error simulado antes de confirmar. Compare pedidos y existencias antes y despues; el cambio se revierte.
 - Consistencia: intente pedir mas unidades de las disponibles. El pedido se rechaza; las restricciones SQL impiden stock negativo, cantidad no positiva y referencias invalidas.
-- Aislamiento: en Pruebas ACID pulse la prueba concurrente. Se crea un producto con una unidad, dos conexiones independientes compiten y se muestran ambos resultados y el stock final. `SELECT FOR UPDATE` mantiene el bloqueo hasta confirmar o revertir.
+- Dos clientes: abra http://localhost:8501 en dos pestanas. En ambas elija Dos clientes. En la primera pulse Crear producto con 1 unidad y anote el numero. Actualice la segunda pestana; seleccione el mismo numero en ambas y dos clientes distintos. Pulse Comprar la ultima unidad en ambas con la menor separacion posible. Cada pestana muestra su resultado; solo una compra puede confirmarse.
+- Aislamiento automatizado: en Pruebas ACID pulse la prueba concurrente. Se crea un producto con una unidad, dos conexiones independientes compiten y se muestran ambos resultados y el stock final. `SELECT FOR UPDATE` mantiene el bloqueo hasta confirmar o revertir.
 - Durabilidad: confirme un pedido, ejecute `docker compose restart`, vuelva a consultar Pedidos y Productos.
-- Circuit Breaker: en Servicio externo haga fallar el proveedor y pulse tres veces el pago simulado: CLOSED pasa a OPEN. Otra llamada inmediata se bloquea. Recupere el proveedor, espere 10 segundos y pruebe: OPEN pasa por HALF-OPEN y cierra al tener exito. Para la rama de fallo, mantenga el proveedor fallando durante la prueba HALF-OPEN.
+- Circuit Breaker: en Servicio externo haga fallar el proveedor y pulse tres veces el pago simulado: CLOSED pasa a OPEN. Otra llamada inmediata se bloquea. Recupere el proveedor, espere 10 segundos y pruebe: OPEN pasa por HALF-OPEN y cierra al tener exito. Para la rama de fallo, mantenga el proveedor fallando, espere 10 segundos y pulse de nuevo: se muestra OPEN → HALF-OPEN → OPEN. Despues recupere el proveedor, espere y repita para observar CLOSED.
 
 El Circuit Breaker vive en la sesion de Streamlit y se reinicia al reiniciar la aplicacion; no coordina otras sesiones. Los observadores reaccionan despues del COMMIT y muestran mensajes en pantalla; no son una cola durable. El pago simulado se prueba de forma independiente y no afecta al pedido.
 
@@ -63,3 +64,5 @@ docker compose exec -T app python integration_check.py
 ```
 
 Las capturas de demostracion y el informe se generan por separado. Para construir el proyecto desde el esquema inicial, use un volumen PostgreSQL nuevo; el script de inicializacion se ejecuta solo la primera vez.
+
+El SQL original se incluye como referencia y no se ejecuta automaticamente. Compose solo monta `01_schema.sql` para inicializar una base nueva; el backup incluye los datos reales utilizados durante las pruebas. La eliminacion es logica para conservar pedidos historicos.
